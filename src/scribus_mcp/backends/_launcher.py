@@ -188,7 +188,17 @@ async def ensure_bridge_running(
             "(Linux only)."
         )
 
-    if _scribus_already_running(config.scribus_bin):
+    # Duplicate-window guard. Pass the *resolved* executable path, not the
+    # raw ``config.scribus_bin``: the raw value is often a bare command
+    # (``"scribus.exe"``) or an AppImage wrapper name while the actually-
+    # running process is the real binary (``Scribus.exe`` / the AppImage's
+    # ``Scribus``). Matching the resolved name is what ``_scribus_already_running``
+    # is built to do — it extracts the basename — so a bare raw value that
+    # differs from the real process name produced false negatives and let a
+    # second, duplicate Scribus window open. Fall back to the raw config only
+    # if resolution returned None (unreachable in this branch, but defensive).
+    running_probe = str(scribus_bin) if scribus_bin is not None else config.scribus_bin
+    if _scribus_already_running(running_probe):
         return False, (
             "Scribus appears to be running but the bridge isn't responding. "
             "Open Script > Execute Script... and load "
