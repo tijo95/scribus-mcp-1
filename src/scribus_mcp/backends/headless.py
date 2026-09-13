@@ -13,12 +13,19 @@ from scribus_mcp.config import Config
 from scribus_mcp.scripter_template import py_call, render_headless_script
 
 
-def _write_prefs_with_font_dirs(prefs_dir: Path, font_dirs: tuple[str, ...]) -> Path:
+def _write_prefs_with_font_dirs(
+    prefs_dir: Path,
+    font_dirs: tuple[str, ...],
+    prefs_name: str | None = None,
+) -> Path:
     """Write a minimal Scribus prefs XML pre-populated with ExtraFontDirs.
 
     Scribus fills in defaults for any keys we don't set, so we only need
     the ``Fonts/ExtraFontDirs`` subtree. Returns the path to the written
     XML so the caller can log it.
+
+    ``prefs_name`` overrides the filename; when omitted the default
+    ``"prefs172.xml"`` is used (Scribus 1.7.2).
     """
     prefs_dir.mkdir(parents=True, exist_ok=True)
     xml_lines = [
@@ -40,7 +47,9 @@ def _write_prefs_with_font_dirs(prefs_dir: Path, font_dirs: tuple[str, ...]) -> 
             "</preferences>",
         ]
     )
-    target = prefs_dir / "prefs172.xml"
+    if prefs_name is None:
+        prefs_name = "prefs172.xml"
+    target = prefs_dir / prefs_name
     target.write_text("\n".join(xml_lines) + "\n", encoding="utf-8")
     return target
 
@@ -79,7 +88,23 @@ class HeadlessBackend(ScribusBackend):
         prefs_dir: Path | None = None
         if self.config.extra_font_paths:
             prefs_dir = self.config.workdir / f"prefs-{job_id}"
-            _write_prefs_with_font_dirs(prefs_dir, self.config.extra_font_paths)
+            # Derive the prefs filename from the detected Scribus version
+            # so the spawned Scribus actually picks it up (prefs160.xml for
+            # 1.6.x, prefs172.xml for 1.7.2, etc.).
+            from scribus_mcp.backends._launcher import (
+                _detect_scribus_version,
+                resolve_scribus_binary,
+            )
+
+            resolved_for_prefs = await resolve_scribus_binary(self.config)
+            prefs_name = None
+            if resolved_for_prefs is not None:
+                ver = _detect_scribus_version(str(resolved_for_prefs))
+                if ver is not None:
+                    prefs_name = f"prefs{ver[0]}{ver[1]:02d}.xml"
+            _write_prefs_with_font_dirs(
+                prefs_dir, self.config.extra_font_paths, prefs_name=prefs_name
+            )
 
         # Resolve once per call (cached after the first lookup) so
         # IGNORE_HOST_SCRIBUS / AUTO_APPIMAGE are honored. Falls back to
